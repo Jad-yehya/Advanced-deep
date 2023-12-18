@@ -1,14 +1,15 @@
-from torch.utils.data import DataLoader, Dataset
-import torch.nn as nn
 from typing import List, Tuple
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
-import pandas as pd
+
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use("TkAgg")
+import numpy as np
+import pandas as pd
+
+# matplotlib.use("TkAgg")
 import seaborn as sns
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
 
 sns.set_theme()
 
@@ -16,14 +17,13 @@ sns.set_theme()
 def toDataFrame(t: torch.Tensor, origin: str):
     t = t.cpu().detach().numpy()
     df = pd.DataFrame(data=t, columns=(f"x{ix}" for ix in range(t.shape[1])))
-    df['ix'] = df.index * 1.
+    df["ix"] = df.index * 1.0
     df["origin"] = origin
     return df
 
 
-
 def scatterplots(samples: List[Tuple[str, torch.Tensor]], col_wrap=4):
-    """Draw the 
+    """Draw the
 
     Args:
         samples (List[Tuple[str, torch.Tensor]]): The list of samples with their names
@@ -37,7 +37,9 @@ def scatterplots(samples: List[Tuple[str, torch.Tensor]], col_wrap=4):
     samples = [toDataFrame(sample, name) for name, sample in samples]
     data = pd.concat(samples, ignore_index=True)
 
-    g = sns.FacetGrid(data, height=2, col_wrap=col_wrap, col="origin", sharex=False, sharey=False)
+    g = sns.FacetGrid(
+        data, height=2, col_wrap=col_wrap, col="origin", sharex=False, sharey=False
+    )
     g.set_titles(col_template="{col_name}", row_template="{row_name}")
 
     if dim == 1:
@@ -59,6 +61,7 @@ def iter_data(dataset: Dataset, bs):
 
 class MLP(nn.Module):
     """Simple 4 layer MLP"""
+
     def __init__(self, nin, nout, nh):
         super().__init__()
         self.net = nn.Sequential(
@@ -70,11 +73,13 @@ class MLP(nn.Module):
             nn.LeakyReLU(0.2),
             nn.Linear(nh, nout),
         )
+
     def forward(self, x):
         return self.net(x)
 
 
 # --- Modules de base
+
 
 class FlowModule(nn.Module):
     def __init__(self):
@@ -90,20 +95,25 @@ class FlowModule(nn.Module):
 
     def check(self, x: torch.Tensor):
         with torch.no_grad():
-            (y, ), logdetj_1 = self.encoder(x)
-            (hat_x, ), logdetj = self.decoder(y)
+            y, logdetj_1 = self.encoder(x)
+            hat_x, logdetj = self.decoder(y)
 
             # Check inverse
             delta = (x - hat_x).abs().mean()
-            assert  delta < 1e-6, f"f(f^{-1}(x)) not equal to x (mean abs. difference = {delta})"
+            assert (
+                delta < 1e-6
+            ), f"f(f^{-1}(x)) not equal to x (mean abs. difference = {delta})"
 
             # Check logdetj
             delta_logdetj = (logdetj_1 + logdetj).abs().mean()
-            assert  delta_logdetj < 1e-6, f"log | J | not equal to -log |J^-1| (mean abs. difference = {delta_logdetj})"
+            assert (
+                delta_logdetj < 1e-6
+            ), f"log | J | not equal to -log |J^-1| (mean abs. difference = {delta_logdetj})"
 
 
 class FlowSequential(FlowModule):
     """A container for a succession of flow modules"""
+
     def __init__(self, *flows: FlowModule):
         super().__init__()
         self.flows = nn.ModuleList(flows)
@@ -118,10 +128,13 @@ class FlowSequential(FlowModule):
             logdet += _logdet
 
             x = gx[-1]
-        return zs, logdet            
+        return zs, logdet
 
     def modulenames(self, decoder=False):
-        return [f"L{ix} {module.__class__.__name__}" for ix, module in enumerate(reversed(self.flows) if decoder else self.flows)]
+        return [
+            f"L{ix} {module.__class__.__name__}"
+            for ix, module in enumerate(reversed(self.flows) if decoder else self.flows)
+        ]
 
     def encoder(self, x):
         """Returns the sequence (z_K, ..., z_0) and the log det"""
@@ -136,6 +149,7 @@ class FlowSequential(FlowModule):
 
 class FlowModel(FlowSequential):
     """Flow model = prior + flow modules"""
+
     def __init__(self, prior: torch.distributions.Distribution, *flows: FlowModule):
         super().__init__(*flows)
         self.prior = prior
@@ -153,20 +167,20 @@ class FlowModel(FlowSequential):
         """Plot samples together with ground truth (data)"""
         with torch.no_grad():
             d = data[list(np.random.choice(range(len(data)), n)), :]
-            z0 = self.prior.sample((n, ))
+            z0 = self.prior.sample((n,))
             zs, _ = self.decoder(z0)
 
-            data = [("data", d), ("dist", z0)] + list(zip(self.modulenames(decoder=True), zs[1:]))    
+            data = [("data", d), ("dist", z0)] + list(
+                zip(self.modulenames(decoder=True), zs[1:])
+            )
             scatterplots(data, col_wrap=4)
 
 
-
-
 class Invertible1x1Conv(FlowModule):
-    """ 
+    """
     As introduced in Glow paper.
     """
-    
+
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -194,7 +208,9 @@ class Invertible1x1Conv(FlowModule):
 
         # https://pytorch.org/docs/stable/generated/torch.tril.html
         # Excludes the diagonal
-        L = torch.tril(self.L, diagonal=-1) + torch.diag(torch.ones(self.dim, device=self.L.device))
+        L = torch.tril(self.L, diagonal=-1) + torch.diag(
+            torch.ones(self.dim, device=self.L.device)
+        )
 
         # https://pytorch.org/docs/stable/generated/torch.triu.html
         # Excludes the diagonal
